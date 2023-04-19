@@ -1,11 +1,14 @@
 import asyncio
-from pyppeteer import launch
 from selectolax.parser import HTMLParser
 import time
 import aiohttp
 import sqlite3
 
 baseurl = 'https://www.futuretools.io'
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,',
+}
 
 conn = sqlite3.connect('futuretools.db')
 cursor = conn.cursor()
@@ -13,48 +16,35 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS futuretools(title TEXT, description
 
 
 async def homepage():
-
-    scraper = await launch()
-    page = await scraper.newPage()
-    await page.goto(baseurl)
-
-    SCROLL_PAUSE_TIME = 0.5
-
-    last_height = await page.evaluate('document.body.scrollHeight')
-
-    while True:
-        await page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
-        await asyncio.sleep(SCROLL_PAUSE_TIME)
-        new_height = await page.evaluate('document.body.scrollHeight')
-        if new_height == last_height:
-            break
-        last_height = new_height
-    # Get the page content and parse it
-
-    content = await page.content()
-    parser = HTMLParser(content)
-    urls = []
-    for c in parser.css('div.tool-item-text-link-block---new'):
-        urls.append(baseurl + c.css('a')[0].attributes['href'])
-    await scraper.close()
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://api.jetboost.io/search?boosterId=cledf8e5d71pw0634gaia6sc4&q', headers=headers) as response:
+            data = await response.json()
+            urls = [
+                f'https://www.futuretools.io/tools/{url}' for url in data.keys()]
     return urls
 
 
+semaphore = asyncio.Semaphore(50)
+
+
 async def main(urls):
-    async with aiohttp.ClientSession() as session:
-        tasks = []
-        for url in urls:
-            task = asyncio.ensure_future(fetch(session, url))
-            tasks.append(task)
-        await asyncio.gather(*tasks)
+    async with semaphore:
+        connector = aiohttp.TCPConnector(limit=50)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            tasks = []
+            for url in urls:
+                task = asyncio.ensure_future(fetch(session, url))
+                tasks.append(task)
+                semaphore.release()
+            await asyncio.gather(*tasks)
 
 
 async def fetch(session, url):
-    async with session.get(url) as response:
-        await scrape(await response.text())
+    async with session.get(url, headers=headers) as response:
+        await scrape(await response.text(), response.url)
 
 
-async def scrape(response):
+async def scrape(response, url):
 
     parser = HTMLParser(response)
 
@@ -62,15 +52,15 @@ async def scrape(response):
         title = parser.css_first('h1.heading-3').text()
         description = parser.css_first('div.rich-text-block').text()
         category = parser.css_first('div.text-block-18').text()
-        featured_image = parser.css_first('img.image-3').attributes['src']
+        image = parser.css_first('img.image-3').attributes['src']
         link = parser.css_first('a.link-block-2').attributes['href']
-        pricing_model = parser.css_first('div.text-block-2').text()
+        model = parser.css_first('div.text-block-2').text()
 
         cursor.execute('''INSERT INTO futuretools VALUES (?,?,?,?,?,?)''',
-                       (title, description, category, featured_image, link, pricing_model))
+                       (title, description, category, image, link, model))
         conn.commit()
     except Exception as e:
-        print(e)
+        print(f'Error: {e} \nURL: {url}')
 
 
 if __name__ == '__main__':
