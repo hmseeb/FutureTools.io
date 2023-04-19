@@ -7,9 +7,9 @@ import sqlite3
 
 baseurl = 'https://www.futuretools.io'
 
-conn = sqlite3.connect('tools.db')
+conn = sqlite3.connect('futuretools.db')
 cursor = conn.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS tools(title TEXT, description TEXT, category TEXT, featured_image TEXT, link TEXT, pricing_model TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS futuretools(title TEXT, description TEXT, category TEXT, featured_image TEXT, link TEXT, pricing_model TEXT)''')
 
 
 async def homepage():
@@ -66,7 +66,7 @@ async def scrape(response):
         link = parser.css_first('a.link-block-2').attributes['href']
         pricing_model = parser.css_first('div.text-block-2').text()
 
-        cursor.execute('''INSERT INTO tools VALUES (?,?,?,?,?,?)''',
+        cursor.execute('''INSERT INTO futuretools VALUES (?,?,?,?,?,?)''',
                        (title, description, category, featured_image, link, pricing_model))
         conn.commit()
     except Exception as e:
